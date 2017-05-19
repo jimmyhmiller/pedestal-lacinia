@@ -21,12 +21,23 @@
     :headers {}
     :body body}))
 
+
+(defmulti deserialize-body
+  (fn [request]
+    (get-in request [:headers "content-type"])))
+
+(defmethod deserialize-body "application/json" [request]
+  (cheshire/parse-string (:body request) true))
+
+(defmethod deserialize-body :default [request]
+  (:body request))
+
 (defmulti extract-query
   (fn [request]
     (get-in request [:headers "content-type"])))
 
 (defmethod extract-query "application/json" [request]
-  (let [body (cheshire/parse-string (:body request) true)
+  (let [body (:body request)
         query (:query body)
         variables (:variables body)
         operation-name (:operationName body)]
@@ -34,7 +45,7 @@
      :graphql-vars variables
      :graphql-operation-name operation-name}))
 
-(defmethod extract-query  "application/graphql" [request]
+(defmethod extract-query "application/graphql" [request]
   (let [query (:body request)
         variables (when-let [vars (get-in request [:query-params :variables])]
                     (cheshire/parse-string vars true))]
@@ -77,6 +88,14 @@
                     q (extract-query request)]
                 (assoc context :request
                        (merge request q))))}))
+
+(def graphql-deserialize-body-interceptor
+  (interceptor
+    {:name ::graphql-data
+     :enter (fn [context]
+              (let [request (:request context)
+                    body (deserialize-body request)]
+                (assoc-in context [:request :body] body)))}))
 
 
 (defn query-not-found-error [request]
@@ -138,6 +157,9 @@
                         (assoc-in [:response :body :errors]
                                   (map #(dissoc % :status) errors))))
                   context)))}))
+
+
+
 
 (defn inject-app-context-interceptor
   "Adds a :lacinia-app-context key to the request, used when executing the query.
@@ -236,12 +258,15 @@
                           (response/redirect "/index.html")))
         query-parser (query-parser-interceptor compiled-schema)
         inject-app-context (inject-app-context-interceptor (:app-context options))
+        inject-query-lookup (get options :query-lookup)
         executor (if (:async options)
                    async-query-executor-handler
                    query-executor-handler)]
     (cond-> #{["/graphql" :post
                [json-response-interceptor
                 body-data-interceptor
+                graphql-deserialize-body-interceptor
+                inject-query-lookup
                 graphql-data-interceptor
                 missing-query-interceptor
                 query-parser
