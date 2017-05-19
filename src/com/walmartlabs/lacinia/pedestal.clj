@@ -21,7 +21,6 @@
     :headers {}
     :body body}))
 
-
 (defmulti deserialize-body
   (fn [request]
     (get-in request [:headers "content-type"])))
@@ -157,9 +156,6 @@
                         (assoc-in [:response :body :errors]
                                   (map #(dissoc % :status) errors))))
                   context)))}))
-
-
-
 
 (defn inject-app-context-interceptor
   "Adds a :lacinia-app-context key to the request, used when executing the query.
